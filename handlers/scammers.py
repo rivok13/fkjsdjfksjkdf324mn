@@ -33,7 +33,7 @@ async def show_scammers_page(callback: CallbackQuery, db: Database, page: int):
             username = un if un else "—"
             txt += f"⚠️ [{idx:02d}] Никнейм: {game_nick}\nUsername: @{username}\n\n"
     await callback.message.edit_media(
-        InputMediaPhoto(media=IMAGES["scam_base"], caption=txt),
+        InputMediaPhoto(media=IMAGES["scam_base"], caption=txt, parse_mode="HTML"),
         reply_markup=scam_base_kb(page, total_pages)
     )
 
@@ -42,58 +42,98 @@ async def scammers_page_handler(callback: CallbackQuery, callback_data: Scammers
     await show_scammers_page(callback, db, callback_data.page)
     await callback.answer()
 
+# ---------- Жалоба (редактирование одного сообщения) ----------
 @router.callback_query(MenuAction.filter(F.action == "complaint"))
 async def complaint_start(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer_photo(
-        IMAGES["username_input"],
-        caption="Введите игровой nick_name мошенника\n\nЕсли не знаете, отправьте «-»:"
+    # Заменяем медиа и текст ОДНИМ вызовом, указывая caption внутри InputMediaPhoto
+    await callback.message.edit_media(
+        InputMediaPhoto(
+            media=IMAGES["username_input"],
+            caption="<b>⚔️ ESPREZZO MARKET – Введите Nickname</b>\n\nВведите игровой nick_name мошенника. Если не знаете, отправьте «-»:",
+            parse_mode="HTML"
+        )
     )
     await state.set_state(Complaint.waiting_for_game_nickname)
+    await state.update_data(complaint_msg_id=callback.message.message_id,
+                            complaint_chat_id=callback.message.chat.id)
     await callback.answer()
 
 @router.message(Complaint.waiting_for_game_nickname)
-async def complaint_game_nickname(message: Message, state: FSMContext):
+async def complaint_game_nickname(message: Message, state: FSMContext, bot: Bot):
     game_nickname = message.text.strip()
     if not game_nickname:
         game_nickname = "-"
     await state.update_data(game_nickname=game_nickname)
-    await message.answer_photo(IMAGES["username_input"], caption="Введите username нарушителя. Без символа «@»:")
+    data = await state.get_data()
+    msg_id = data.get("complaint_msg_id")
+    chat_id = data.get("complaint_chat_id")
+    if msg_id and chat_id:
+        await bot.edit_message_caption(
+            chat_id=chat_id,
+            message_id=msg_id,
+            caption="<b>⚔️ ESPREZZO MARKET – Введите Username</b>\n\nВведите username нарушителя. Без символа «@»:"
+        )
     await state.set_state(Complaint.waiting_for_username)
+    await message.delete()
 
 @router.message(Complaint.waiting_for_username)
-async def complaint_username(message: Message, state: FSMContext):
+async def complaint_username(message: Message, state: FSMContext, bot: Bot):
     username = message.text.strip().lstrip('@')
     if not username:
         await message.answer("Введите корректный username")
         return
     await state.update_data(target_username=username)
-    await message.answer_photo(IMAGES["description"], caption="Опишите краткое описание вашей жалобы:")
+    data = await state.get_data()
+    msg_id = data.get("complaint_msg_id")
+    chat_id = data.get("complaint_chat_id")
+    if msg_id and chat_id:
+        await bot.edit_message_caption(
+            chat_id=chat_id,
+            message_id=msg_id,
+            caption="<b>⚔️ ESPREZZO MARKET – Введите описание</b>\n\nОпишите краткое описание вашей жалобы:"
+        )
     await state.set_state(Complaint.waiting_for_reason)
+    await message.delete()
 
 @router.message(Complaint.waiting_for_reason)
-async def complaint_reason(message: Message, state: FSMContext):
+async def complaint_reason(message: Message, state: FSMContext, bot: Bot):
     reason = message.text
     await state.update_data(reason=reason)
-    await message.answer_photo(
-        IMAGES["photo_upload"],
-        caption="Прикрепите доказательства мошеннических действий",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Далее →", callback_data=MenuAction(action="finish_complaint").pack())]
-        ])
-    )
-    await state.update_data(media=[])
+    data = await state.get_data()
+    msg_id = data.get("complaint_msg_id")
+    chat_id = data.get("complaint_chat_id")
+    if msg_id and chat_id:
+        await bot.edit_message_caption(
+            chat_id=chat_id,
+            message_id=msg_id,
+            caption="<b>⚔️ ESPREZZO MARKET – Прикрепите фото</b>\n\nПрикрепите доказательства мошеннических действий:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Далее →", callback_data=MenuAction(action="finish_complaint").pack())]
+            ])
+        )
     await state.set_state(Complaint.waiting_for_photo)
+    await state.update_data(media=[])
+    await message.delete()
 
 @router.message(Complaint.waiting_for_photo, F.photo)
-async def complaint_photo(message: Message, state: FSMContext):
+async def complaint_photo(message: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     media = data.get("media", [])
     media.append(message.photo[-1].file_id)
     await state.update_data(media=media)
-    await message.answer("Фото добавлено. Отправьте ещё или нажмите Далее.",
-                         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                             [InlineKeyboardButton(text="Далее →", callback_data=MenuAction(action="finish_complaint").pack())]
-                         ]))
+    msg_id = data.get("complaint_msg_id")
+    chat_id = data.get("complaint_chat_id")
+    if msg_id and chat_id:
+        new_caption = f"<b>⚔️ ESPREZZO MARKET – Прикрепите фото</b>\n\nПрикреплено изображений: {len(media)}"
+        await bot.edit_message_caption(
+            chat_id=chat_id,
+            message_id=msg_id,
+            caption=new_caption,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Далее →", callback_data=MenuAction(action="finish_complaint").pack())]
+            ])
+        )
+    await message.delete()
 
 @router.callback_query(MenuAction.filter(F.action == "finish_complaint"))
 async def finish_complaint(callback: CallbackQuery, state: FSMContext, db: Database, bot: Bot):
@@ -136,12 +176,9 @@ async def finish_complaint(callback: CallbackQuery, state: FSMContext, db: Datab
     except Exception as e:
         logging.error(f"Ошибка отправки жалобы: {e}")
 
-    reporter = await db.get_user(reporter_id)
-    nickname = reporter[2] if reporter and reporter[2] else f"id{reporter_id}"
-    await callback.message.answer_photo(
-        IMAGES["moderation_pending"],
-        caption=f"{nickname} Ваше обращение находится на рассмотрении администраторов, ожидайте ⚙️",
-        reply_markup=back_to_main()
+    await callback.message.edit_caption(
+        caption="<b>⚔️ ESPREZZO MARKET – Модерация</b>\n\nВаше обращение находится на рассмотрении администраторов, ожидайте ⚙️",
+        reply_markup=None
     )
     await state.clear()
 

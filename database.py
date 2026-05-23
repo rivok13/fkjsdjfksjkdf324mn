@@ -291,22 +291,32 @@ class Database:
             row = await cursor.fetchone()
             return (row[0] or 0.0, row[1])
 
-    async def get_top_sellers(self, limit=10):
+    # ---------- Топ продавцов (по количеству объявлений) ----------
+    async def get_top_sellers_by_offers(self, limit=5):
         async with self.db.execute(
-            """SELECT u.user_id, u.contact_username, AVG(r.rating), COUNT(r.id)
-               FROM users u JOIN reviews r ON u.user_id = r.seller_id
-               WHERE r.status = 'approved'
+            """SELECT u.user_id, u.contact_username, COUNT(o.id) as cnt
+               FROM users u JOIN offers o ON u.user_id = o.user_id
+               WHERE o.status = 'approved'
                GROUP BY u.user_id
-               ORDER BY AVG(r.rating) DESC, COUNT(r.id) DESC
+               ORDER BY cnt DESC
                LIMIT ?""", (limit,)
         ) as cursor:
             return await cursor.fetchall()
 
     async def get_user_rank(self, user_id):
-        top = await self.get_top_sellers(1000)
-        for i, (uid, _, _, _) in enumerate(top, 1):
-            if uid == user_id:
-                return i
+        async with self.db.execute("""
+            SELECT user_id FROM (
+                SELECT user_id, COUNT(id) as cnt
+                FROM offers
+                WHERE status = 'approved'
+                GROUP BY user_id
+                ORDER BY cnt DESC
+            )
+        """) as cursor:
+            rows = await cursor.fetchall()
+            for i, (uid,) in enumerate(rows, 1):
+                if uid == user_id:
+                    return i
         return None
 
     # ---------- Антиспам ----------
@@ -350,19 +360,7 @@ class Database:
         async with self.db.execute("SELECT user_id, keyword FROM tracking") as cursor:
             return await cursor.fetchall()
 
-    # ---------- Топ продавцов (по количеству объявлений, максимум 5) ----------
-    async def get_top_sellers_by_offers(self, limit=5):
-        async with self.db.execute(
-            """SELECT u.user_id, u.contact_username, COUNT(o.id) as cnt
-               FROM users u JOIN offers o ON u.user_id = o.user_id
-               WHERE o.status = 'approved'
-               GROUP BY u.user_id
-               ORDER BY cnt DESC
-               LIMIT ?""", (limit,)
-        ) as cursor:
-            return await cursor.fetchall()
-
-    # ---------- Средние цены (поиск по title_lower, только продавцы) ----------
+    # ---------- Средние цены (поиск по title_lower) ----------
     async def get_average_price_by_keyword(self, keyword):
         words = keyword.lower().split()
         conditions = " AND ".join(["title_lower LIKE ?" for _ in words])
@@ -428,12 +426,12 @@ class Database:
     async def delete_offers_last_days(self, days):
         await self.db.execute("""
             DELETE FROM offer_media WHERE offer_id IN (
-                SELECT id FROM offers WHERE created_at >= datetime('now', ?)
+                SELECT id FROM offers WHERE created_at >= datetime('now', '-' || ? || ' days')
             )
-        """, (f'-{days} days',))
+        """, (days,))
         await self.db.execute("""
-            DELETE FROM offers WHERE created_at >= datetime('now', ?)
-        """, (f'-{days} days',))
+            DELETE FROM offers WHERE created_at >= datetime('now', '-' || ? || ' days')
+        """, (days,))
         await self.db.commit()
 
     async def pin_offer(self, offer_id, days):

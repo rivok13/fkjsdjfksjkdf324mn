@@ -26,7 +26,7 @@ async def admin_panel(callback: CallbackQuery, db: Database):
     await safe_edit_message(callback, "<b>Админ-панель</b>", reply_markup=admin_panel_kb())
     await callback.answer()
 
-# --- Бан (запрещён для владельцев) ---
+# --- Бан ---
 @router.callback_query(AdminAction.filter(F.action == "ban_user"))
 async def ban_user_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("Введите ID пользователя для блокировки:")
@@ -154,48 +154,49 @@ async def remove_admin_start(callback: CallbackQuery, state: FSMContext):
     await state.update_data(action="remove")
     await callback.answer()
 
-@router.message(AdminManageAdmins.waiting_for_user_id)
-async def manage_admin_id(message: Message, state: FSMContext, db: Database):
-    try:
-        uid = int(message.text)
-    except:
-        await message.answer("Некорректный ID")
-        return
-    action = (await state.get_data()).get("action")
+@router.callback_query(AdminAction.filter(F.action == "clear_username"))
+async def clear_username_start(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введите username (без @), который нужно освободить:")
+    await state.set_state(AdminManageAdmins.waiting_for_user_id)
+    await state.update_data(action="clear")
+    await callback.answer()
+
+@router.message(AdminManageAdmins.waiting_for_user_id, F.text)
+async def process_admin_manage(message: Message, state: FSMContext, db: Database):
+    data = await state.get_data()
+    action = data.get("action")
     if action == "add":
+        try:
+            uid = int(message.text)
+        except:
+            await message.answer("Некорректный ID")
+            return
         success = await db.make_admin(uid)
         if success:
             await message.answer(f"Пользователь {uid} назначен администратором.")
         else:
             await message.answer("Не удалось назначить администратора (возможно, это владелец).")
+        await state.clear()
     elif action == "remove":
+        try:
+            uid = int(message.text)
+        except:
+            await message.answer("Некорректный ID")
+            return
         success = await db.remove_admin(uid)
         if success:
             await message.answer(f"Пользователь {uid} снят с администрирования.")
         else:
             await message.answer("Не удалось снять администратора (возможно, это владелец).")
-    await state.clear()
-
-# --- Очистка username (админ-панель) ---
-@router.callback_query(AdminAction.filter(F.action == "clear_username"))
-async def clear_username_start(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer("Введите username (без @), который нужно освободить:")
-    await state.set_state(AdminManageAdmins.waiting_for_user_id)  # используем то же состояние, но с action='clear'
-    await state.update_data(action="clear")
-    await callback.answer()
-
-@router.message(AdminManageAdmins.waiting_for_user_id)  # перехватим и для clear
-async def clear_username_exec(message: Message, state: FSMContext, db: Database):
-    data = await state.get_data()
-    if data.get("action") == "clear":
+        await state.clear()
+    elif action == "clear":
         username = message.text.strip().lstrip('@')
         await db.clear_username(username)
         await message.answer(f"Username @{username} освобождён.")
         await state.clear()
-        return
-    # иначе это добавление/удаление админа, обработается предыдущим обработчиком
-    # но чтобы не дублировать, нужно разделить состояния. Сделаем просто: если action == 'clear', то это точно очистка.
-    # Так как состояние одно, лучше вынести clear в отдельный обработчик, но для простоты оставим.
+    else:
+        await message.answer("Неизвестное действие.")
+        await state.clear()
 
 # --- Фильтр слов ---
 @router.callback_query(AdminAction.filter(F.action == "filter_words"))
@@ -229,7 +230,7 @@ async def filter_word_entered(message: Message, state: FSMContext, db: Database)
         await message.answer(f"Слово «{word}» удалено из фильтра.")
     await state.clear()
 
-# --- Закрепить объявление (по ссылке) ---
+# --- Закрепить объявление ---
 @router.callback_query(AdminAction.filter(F.action == "pin_offer"))
 async def pin_offer_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("Введите ссылку на объявление (например, https://t.me/esprezzomarket/243):")
@@ -259,10 +260,9 @@ async def pin_offer_duration(message: Message, state: FSMContext, db: Database, 
         return
     data = await state.get_data()
     msg_id = data['pin_msg_id']
-    # Закрепляем в канале через API
     try:
         await bot.pin_chat_message(CHANNEL_ID, msg_id)
-        await db.pin_offer_by_message_id(msg_id, days)  # обновим БД
+        await db.pin_offer_by_message_id(msg_id, days)
         await message.answer(f"Объявление закреплено на {days} дн.")
     except Exception as e:
         logging.error(f"Ошибка закрепления: {e}")

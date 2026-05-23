@@ -15,11 +15,11 @@ async def cmd_start(message: Message, state: FSMContext, db: Database):
     if not user:
         await message.answer_photo(
             IMAGES["username_input"],
-            caption="<b>⚔️ ESPREZZO MARKET – Регистрация</b>\n\nВведите ваш Telegram username (без @):"
+            caption="<b>⚔️ ESPREZZO MARKET – Регистрация</b>\n\nВам необходимо ввести свой username, без использования «@»: ⚙️"
         )
         await state.set_state(RegisterContact.waiting_for_username)
     else:
-        # Проверка бана (если забанен и не админ/модер)
+        # Проверка бана
         if user[4] == 1 and not await db.is_admin(message.from_user.id) and not await db.is_moderator(message.from_user.id):
             await message.answer(f"⚠️ {user[2]}, вы были заблокированы в данном боте навсегда")
             return

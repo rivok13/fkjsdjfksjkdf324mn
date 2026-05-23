@@ -1,3 +1,4 @@
+# main.py (полный, без сокращений)
 import asyncio, logging
 from aiogram import Bot, Dispatcher, BaseMiddleware
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -20,7 +21,7 @@ class BanMiddleware(BaseMiddleware):
         user_id = event.from_user.id
         user = await db.get_user(user_id)
 
-        if user and user[4] == 1:  # is_banned = 1
+        if user and user[4] == 1:  # is_banned
             if not await db.is_admin(user_id) and not await db.is_moderator(user_id):
                 nickname = user[2] if user[2] else f"id{user_id}"
                 text = f"⚠️ {nickname}, вы были заблокированы в данном боте навсегда"

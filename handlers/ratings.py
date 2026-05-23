@@ -22,7 +22,7 @@ async def show_profile(callback: CallbackQuery, db: Database):
     if not user:
         await callback.answer("Сначала зарегистрируйтесь /start")
         return
-    contact = user[2]
+    contact = user[2] if user[2] else "—"
     offers_cnt = await db.get_user_offers_count(callback.from_user.id)
     rank = await db.get_user_rank(callback.from_user.id)
     txt = (

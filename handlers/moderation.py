@@ -3,7 +3,7 @@ from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 from database import Database
 from keyboards import OfferAction, RejectReason, reject_reasons_kb, moderation_kb, MenuAction, RUS_CATEGORIES
-from config import CHANNEL_ID
+from config import CHANNEL_ID, CHANNEL_USERNAME
 
 router = Router()
 
@@ -11,8 +11,7 @@ def escape_html(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 def get_post_link(message_id: int) -> str:
-    channel_id_clean = str(CHANNEL_ID).replace("-100", "")
-    return f"https://t.me/c/{channel_id_clean}/{message_id}"
+    return f"https://t.me/{CHANNEL_USERNAME}/{message_id}"
 
 @router.callback_query(OfferAction.filter(F.action == "publish"))
 async def publish_offer(callback: CallbackQuery, callback_data: OfferAction, db: Database, bot: Bot):
@@ -48,28 +47,19 @@ async def publish_offer(callback: CallbackQuery, callback_data: OfferAction, db:
     ])
     try:
         if offer['media_files']:
-            # Публикуем в канал первое фото с подписью и кнопкой "Написать"
-            await bot.send_photo(CHANNEL_ID, offer['media_files'][0], caption=post_text, reply_markup=contact_btn)
-            if len(offer['media_files']) > 1:
-                group = [InputMediaPhoto(media=fid) for fid in offer['media_files'][1:]]
-                await bot.send_media_group(CHANNEL_ID, group)
-            # Сохраняем ID первого сообщения
-            msg_id = (await bot.send_message(CHANNEL_ID, "✅")).message_id - 1  # костыль, но для простоты
-            # На самом деле надо получить message_id из ответа send_photo
-            # но aiogram возвращает объект Message, его можно сохранить
+            media_group = [InputMediaPhoto(media=fid, caption=post_text if i == 0 else None, parse_mode="HTML")
+                           for i, fid in enumerate(offer['media_files'])]
+            msgs = await bot.send_media_group(CHANNEL_ID, media_group)
+            await bot.send_message(CHANNEL_ID, "Связь с продавцом:", reply_markup=contact_btn)
+            msg_id = msgs[0].message_id
         else:
             msg = await bot.send_message(CHANNEL_ID, post_text, reply_markup=contact_btn)
             msg_id = msg.message_id
-        if not offer['media_files']:
-            await db.update_offer_status(offer['id'], 'approved', channel_message_id=msg_id, moderator_id=callback.from_user.id)
-        else:
-            # предположим, что первый message_id сохраняем
-            # не будем усложнять, в реальном коде надо сохранить из send_photo
-            pass
+        await db.update_offer_status(offer['id'], 'approved', channel_message_id=msg_id, moderator_id=callback.from_user.id)
         await callback.message.edit_reply_markup(reply_markup=None)
         await callback.message.reply("✅ Опубликовано")
 
-        post_link = get_post_link(msg_id) if not offer['media_files'] else get_post_link(0)  # упрощение
+        post_link = get_post_link(msg_id)
         try:
             await bot.send_message(
                 offer['user_id'],
