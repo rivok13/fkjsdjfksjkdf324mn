@@ -1,4 +1,3 @@
-# main.py (полный, без сокращений)
 import asyncio, logging
 from aiogram import Bot, Dispatcher, BaseMiddleware
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -6,13 +5,49 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.types import BotCommand, Message, CallbackQuery
 from database import Database
 from config import BOT_TOKEN, ADMIN_IDS
+from states import RegisterContact  # импорт состояния регистрации
 
 from handlers import (
     common, offer, moderation, admin, scammers,
     tracking, ratings, reviews, avg_price
 )
 
+class UsernameMiddleware(BaseMiddleware):
+    """Если у пользователя удалён contact_username, возвращает его к регистрации."""
+    async def __call__(self, handler, event, data):
+        db: Database = data.get('db')
+        if not db:
+            return await handler(event, data)
+
+        user_id = event.from_user.id
+        user = await db.get_user(user_id)
+
+        # Если пользователь существует, но username отсутствует или пуст
+        if user and (not user[2] or user[2].strip() == ''):
+            # Пропускаем только состояние регистрации
+            state: FSMContext = data.get('state')
+            if state:
+                current_state = await state.get_state()
+                if current_state == RegisterContact.waiting_for_username:
+                    return await handler(event, data)
+
+            # Принудительно переводим в регистрацию
+            text = "Ваш username был сброшен администратором. Пожалуйста, введите новый username (без @):"
+            if isinstance(event, CallbackQuery):
+                await event.answer(text, show_alert=True)
+                # Отправляем сообщение с запросом username
+                await event.message.answer(text)
+            elif isinstance(event, Message):
+                await event.answer(text)
+            # Устанавливаем состояние
+            if state:
+                await state.set_state(RegisterContact.waiting_for_username)
+            return  # Не передаём управление дальше
+
+        return await handler(event, data)
+
 class BanMiddleware(BaseMiddleware):
+    """Проверяет, не заблокирован ли пользователь."""
     async def __call__(self, handler, event, data):
         db: Database = data.get('db')
         if not db:
@@ -46,6 +81,10 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
     dp = Dispatcher(storage=MemoryStorage())
     db = Database()
+
+    # Порядок Middleware: сначала проверяем username, потом бан
+    dp.message.middleware(UsernameMiddleware())
+    dp.callback_query.middleware(UsernameMiddleware())
 
     dp.message.middleware(BanMiddleware())
     dp.callback_query.middleware(BanMiddleware())
