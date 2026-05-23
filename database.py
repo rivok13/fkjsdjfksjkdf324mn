@@ -297,6 +297,8 @@ class Database:
             """SELECT u.user_id, u.contact_username, COUNT(o.id) as cnt
                FROM users u JOIN offers o ON u.user_id = o.user_id
                WHERE o.status = 'approved'
+                 AND u.contact_username IS NOT NULL
+                 AND u.contact_username != ''
                GROUP BY u.user_id
                ORDER BY cnt DESC
                LIMIT ?""", (limit,)

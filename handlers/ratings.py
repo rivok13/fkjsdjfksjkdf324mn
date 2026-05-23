@@ -13,7 +13,8 @@ async def show_top(callback: CallbackQuery, db: Database):
     else:
         txt = "<b>🏆 Рейтинг:</b>\n\n"
         for i, (_, contact, cnt) in enumerate(top, 1):
-            txt += f"[{i:02d}] @{contact} – Количество объявлений: {cnt}\n\n"
+            username = contact if contact else "—"
+            txt += f"[{i:02d}] @{username} – Количество объявлений: {cnt}\n\n"
     await callback.message.edit_media(InputMediaPhoto(media=IMAGES["rating"], caption=txt), reply_markup=back_to_main())
     await callback.answer()
 
