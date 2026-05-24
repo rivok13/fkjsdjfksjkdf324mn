@@ -94,12 +94,15 @@ class Database:
         await self.db.commit()
 
     async def _migrate(self):
+        # Добавляем столбец is_admin, если его нет
         try:
             await self.db.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
         except:
             pass
+        # Проставляем владельцам уровень 2 (владелец), но не трогаем contact_username
         for uid in OWNER_IDS:
-            await self.db.execute("INSERT OR IGNORE INTO users (user_id, contact_username) VALUES (?, ?)", (uid, f"owner{uid}"))
+            # Убедимся, что запись существует
+            await self.db.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (uid,))
             await self.db.execute("UPDATE users SET is_admin = 2 WHERE user_id = ?", (uid,))
         await self.db.commit()
 
@@ -291,7 +294,7 @@ class Database:
             row = await cursor.fetchone()
             return (row[0] or 0.0, row[1])
 
-    # ---------- Топ продавцов (по количеству объявлений) ----------
+    # ---------- Топ продавцов ----------
     async def get_top_sellers_by_offers(self, limit=5):
         async with self.db.execute(
             """SELECT u.user_id, u.contact_username, COUNT(o.id) as cnt
@@ -362,7 +365,7 @@ class Database:
         async with self.db.execute("SELECT user_id, keyword FROM tracking") as cursor:
             return await cursor.fetchall()
 
-    # ---------- Средние цены (поиск по title_lower) ----------
+    # ---------- Средние цены ----------
     async def get_average_price_by_keyword(self, keyword):
         words = keyword.lower().split()
         conditions = " AND ".join(["title_lower LIKE ?" for _ in words])

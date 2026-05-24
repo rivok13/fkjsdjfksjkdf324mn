@@ -42,19 +42,31 @@ async def publish_offer(callback: CallbackQuery, callback_data: OfferAction, db:
         f"<b>{cost_label}:</b> {price_str}\n\n"
         f"<blockquote>Предложение: t.me/esprezzomarket_bot</blockquote>"
     )
+
+    # Кнопка "Написать" с контактом продавца
     contact_btn = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Написать", url=f"https://t.me/{user[2]}")]
     ])
+
     try:
         if offer['media_files']:
-            media_group = [InputMediaPhoto(media=fid, caption=post_text if i == 0 else None, parse_mode="HTML")
-                           for i, fid in enumerate(offer['media_files'])]
-            msgs = await bot.send_media_group(CHANNEL_ID, media_group)
-            await bot.send_message(CHANNEL_ID, "Связь с продавцом:", reply_markup=contact_btn)
-            msg_id = msgs[0].message_id
-        else:
-            msg = await bot.send_message(CHANNEL_ID, post_text, reply_markup=contact_btn)
+            # Отправляем первое фото с подписью и кнопкой "Написать"
+            msg = await bot.send_photo(
+                CHANNEL_ID,
+                offer['media_files'][0],
+                caption=post_text,
+                parse_mode="HTML",
+                reply_markup=contact_btn
+            )
             msg_id = msg.message_id
+            # Остальные фото отправляем отдельно без кнопок
+            if len(offer['media_files']) > 1:
+                group = [InputMediaPhoto(media=fid) for fid in offer['media_files'][1:]]
+                await bot.send_media_group(CHANNEL_ID, group)
+        else:
+            msg = await bot.send_message(CHANNEL_ID, post_text, reply_markup=contact_btn, parse_mode="HTML")
+            msg_id = msg.message_id
+
         await db.update_offer_status(offer['id'], 'approved', channel_message_id=msg_id, moderator_id=callback.from_user.id)
         await callback.message.edit_reply_markup(reply_markup=None)
         await callback.message.reply("✅ Опубликовано")
